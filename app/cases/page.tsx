@@ -1,6 +1,8 @@
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 
+export const revalidate = 0
+
 export default async function CasesPage() {
     const { data } = await supabase
         .from('cases_articles')

@@ -1,6 +1,8 @@
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 
+export const revalidate = 0
+
 export default async function CaseDetailPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = await params
     const { data: a } = await supabase
