@@ -112,13 +112,15 @@ export async function POST(req: NextRequest) {
             const generated = JSON.parse(raw.replace(/```json|```/g, '').trim())
 
             // Supabaseに保存
+            const jstNow = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().replace('Z', '+09:00')
             const { data: saved, error } = await supabase
                 .from('cases_articles')
                 .insert({
                     notion_page_id: page.id,
                     source_url: url,
                     ...generated,
-                    status: 'レビュー中'
+                    status: 'レビュー中',
+                    created_at: jstNow,
                 })
                 .select('id')
                 .single()

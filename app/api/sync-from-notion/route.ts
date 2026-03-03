@@ -238,13 +238,18 @@ export async function POST(req: NextRequest) {
                 continue;
             }
 
-            // 同期済みにする（published_at があれば Synced At にも反映）
+            // 同期済みにする（published_at があれば JST変換してSynced Atにも反映）
+            const toJST = (iso: string) =>
+                new Date(new Date(iso).getTime() + 9 * 60 * 60 * 1000)
+                    .toISOString()
+                    .replace('Z', '+09:00')
+
             await notion.pages.update({
                 page_id: pageId,
                 properties: {
                     Synced: { checkbox: true },
                     ...(updated?.published_at
-                        ? { 'Synced At': { date: { start: updated.published_at } } }
+                        ? { 'Synced At': { date: { start: toJST(updated.published_at) } } }
                         : {}),
                 },
             });
