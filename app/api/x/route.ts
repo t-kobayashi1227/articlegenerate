@@ -1,6 +1,6 @@
 // app/api/ingest/x/route.ts
 import { NextResponse } from "next/server";
-import { createSupabaseAdmin } from "../../lib/supabase/server";
+import { createSupabaseAdmin } from "../../lib/supabase/admin";
 
 export const runtime = "nodejs"; // 念のため（nodeで安定運用）
 

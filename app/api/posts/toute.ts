@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdmin } from "@/app/lib/supabase/server";
 
-export const runtime = "node.js";
+export const runtime = "nodejs";
 
 export async function GET() {
     const supabase = createSupabaseAdmin();
