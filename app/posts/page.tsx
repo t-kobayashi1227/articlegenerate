@@ -1,3 +1,5 @@
+import { createSupabaseAdmin } from "@/app/lib/supabase/admin";
+
 type Post = {
     id: string;
     title?: string;
@@ -5,21 +7,24 @@ type Post = {
 };
 
 export default async function PostsPage() {
-    const res = await fetch("http://localhost:3000/api/posts", {
-        cache: "no-store",
-    });
+    const supabase = createSupabaseAdmin();
+    const { data, error } = await supabase
+        .from("posts")
+        .select("id,title,created_at")
+        .order("created_at", { ascending: false })
+        .limit(20);
 
-    if (!res.ok) {
+    if (error) {
         return <div>読み込みに失敗しました</div>;
     }
 
-    const json: { items: Post[] } = await res.json();
+    const posts = (data ?? []) as Post[];
 
     return (
         <main>
             <h1>Posts</h1>
             <ul>
-                {json.items.map((p) => (
+                {posts.map((p) => (
                     <li key={p.id}>
                         {p.title ?? "(no title)"}{""}
                         <small>{p.created_at ?? ""}</small>

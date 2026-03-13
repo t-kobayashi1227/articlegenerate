@@ -7,7 +7,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
     const { id } = await params
     const { data: a } = await supabase
         .from('cases_articles')
-        .select('*')
+        .select('id,title,card_before,card_after,detail_challenge,detail_solution,detail_results,detail,detail_quote,detail_quote_author')
         .eq('id', id)
         .single()
 
