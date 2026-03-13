@@ -2,13 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { Client } from '@notionhq/client'
 import { createClient } from '@supabase/supabase-js'
+import { GoogleGenAI } from '@google/genai'
 
 const notion = new Client({ auth: process.env.NOTION_TOKEN })
 const ai = new Anthropic()
 const supabase = createClient(
     process.env.SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_KEY!
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
+// ★追加: Gemini クライアント（Nano Banana）
+const gemini = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! })
 
 const PROMPT = `
 あなたはBtoB向けサービスサイトの事例記事ライターです。
@@ -40,19 +43,70 @@ async function fetchPageText(url: string): Promise<string> {
 
     const html = await response.text()
 
-    // HTMLタグを除去してテキストだけ抽出
     const text = html
-        .replace(/<script[\s\S]*?<\/script>/gi, '')   // scriptタグ除去
-        .replace(/<style[\s\S]*?<\/style>/gi, '')      // styleタグ除去
-        .replace(/<[^>]+>/g, ' ')                      // その他のHTMLタグ除去
-        .replace(/&nbsp;/g, ' ')                       // HTMLエンティティ変換
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[\s\S]*?<\/style>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/g, ' ')
         .replace(/&amp;/g, '&')
         .replace(/&lt;/g, '<')
         .replace(/&gt;/g, '>')
-        .replace(/\s+/g, ' ')                          // 連続スペース・改行を整理
+        .replace(/\s+/g, ' ')
         .trim()
 
-    return text.slice(0, 6000) // Claude APIに渡す文字数を制限
+    return text.slice(0, 6000)
+}
+
+// ★追加: Nano Banana（Gemini 2.5 Flash Image）で画像を生成し、base64を返す
+async function generateArticleImage(title: string, summary: string): Promise<string | null> {
+    const prompt = `BtoB企業の導入事例記事のサムネイル画像。テーマ：「${title}」。内容：${summary}。プロフェッショナルで清潔感があるビジネス向けイラスト。テキストや文字は含めない。明るく信頼感のある配色。`
+
+    const response = await gemini.models.generateContent({
+        model: 'gemini-2.5-flash-preview-05-20',
+        contents: prompt,
+    })
+
+    // レスポンスから画像データ（base64）を取り出す
+    const parts = response.candidates?.[0]?.content?.parts ?? []
+    for (const part of parts as any[]) {
+        if (part.inlineData?.mimeType?.startsWith('image/')) {
+            return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`
+        }
+    }
+    return null
+}
+
+// ★追加: base64画像をSupabase Storageにアップロードして永続URLを返す
+async function uploadImageToSupabase(base64DataUrl: string, articleId: string): Promise<string | null> {
+    // "data:image/png;base64,xxxx" → MIMEタイプとバイナリを分離
+    const [meta, base64Data] = base64DataUrl.split(',')
+    const mimeType = meta.match(/:(.*?);/)?.[1] ?? 'image/png'
+    const ext = mimeType.split('/')[1] ?? 'png'
+    const fileName = `${articleId}.${ext}`
+
+    // base64 → Uint8Array に変換
+    const binaryStr = atob(base64Data)
+    const bytes = new Uint8Array(binaryStr.length)
+    for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i)
+    }
+
+    const { error } = await supabase.storage
+        .from('article-images')        // ← Supabaseで作成するバケット名
+        .upload(fileName, bytes, {
+            contentType: mimeType,
+            upsert: true,
+        })
+
+    if (error) {
+        throw new Error(`Storage upload失敗: ${error.message}`)
+    }
+
+    const { data } = supabase.storage
+        .from('article-images')
+        .getPublicUrl(fileName)
+
+    return data.publicUrl
 }
 
 export async function POST(req: NextRequest) {
@@ -63,7 +117,7 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-        // Notionから「承認前」ページを取得
+        // Notionから「生成待ち」ページを取得
         const { results } = await notion.databases.query({
             database_id: process.env.NOTION_DATABASE_ID!,
             filter: { property: 'Status', status: { equals: '生成待ち' } }
@@ -90,7 +144,7 @@ export async function POST(req: NextRequest) {
                 continue
             }
 
-            // URLから本文を直接取得
+            // URLから本文を取得
             let text: string
             try {
                 text = await fetchPageText(url)
@@ -107,11 +161,28 @@ export async function POST(req: NextRequest) {
                 messages: [{ role: 'user', content: `${PROMPT}\n\n${text}` }]
             })
 
-            // JSONをパース（```json ``` で囲まれていても対応）
             const raw = (message.content[0] as any).text
             const generated = JSON.parse(raw.replace(/```json|```/g, '').trim())
 
-            // Supabaseに保存
+            // ★追加: Nano Banana で画像を生成
+            let imagePublicUrl: string | null = null
+            try {
+                log.push(`[INFO] 画像生成開始: ${generated.title}`)
+                const base64Image = await generateArticleImage(generated.title, generated.card_before)
+                if (base64Image) {
+                    // 一時的なIDでSupabase Storageに保存（後でarticle IDに差し替え）
+                    const tempId = `temp_${page.id}`
+                    imagePublicUrl = await uploadImageToSupabase(base64Image, tempId)
+                    log.push(`[OK] 画像生成・保存成功`)
+                } else {
+                    log.push(`[WARN] 画像生成: 画像データなし（スキップ）`)
+                }
+            } catch (e: any) {
+                // 画像生成失敗は記事保存を止めない
+                log.push(`[WARN] 画像生成失敗（スキップ）: ${e.message}`)
+            }
+
+            // Supabaseに保存（image_urlも一緒に保存）
             const jstNow = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().replace('Z', '+09:00')
             const { data: saved, error } = await supabase
                 .from('cases_articles')
@@ -119,6 +190,7 @@ export async function POST(req: NextRequest) {
                     notion_page_id: page.id,
                     source_url: url,
                     ...generated,
+                    image_url: imagePublicUrl,   // ★追加
                     status: 'レビュー中',
                     created_at: jstNow,
                 })
@@ -130,7 +202,30 @@ export async function POST(req: NextRequest) {
                 continue
             }
 
-            const today = new Date().toISOString().split('T')[0];
+            // ★追加: 画像ファイルをarticle IDで正式リネーム
+            if (imagePublicUrl && saved) {
+                try {
+                    const tempFileName = `temp_${page.id}.png`
+                    const finalFileName = `${saved.id}.png`
+                    await supabase.storage.from('article-images').move(tempFileName, finalFileName)
+
+                    // Supabaseのimage_urlも正式URLに更新
+                    const { data: finalUrlData } = supabase.storage
+                        .from('article-images')
+                        .getPublicUrl(finalFileName)
+
+                    await supabase
+                        .from('cases_articles')
+                        .update({ image_url: finalUrlData.publicUrl })
+                        .eq('id', saved.id)
+
+                    imagePublicUrl = finalUrlData.publicUrl
+                    log.push(`[OK] 画像ファイルをarticle IDでリネーム完了`)
+                } catch (e: any) {
+                    log.push(`[WARN] 画像リネーム失敗（temp名のまま）: ${e.message}`)
+                }
+            }
+
             // NotionにSupabase IDとタイトル、Statusを書き戻す
             await notion.pages.update({
                 page_id: page.id,
@@ -164,6 +259,11 @@ export async function POST(req: NextRequest) {
                     { type: 'quote', quote: { rich_text: [{ type: 'text', text: { content: `${generated.detail_quote}\n— ${generated.detail_quote_author}` } }] } },
                     { type: 'heading_2', heading_2: { rich_text: [{ type: 'text', text: { content: '全文' } }] } },
                     { type: 'paragraph', paragraph: { rich_text: [{ type: 'text', text: { content: generated.detail } }] } },
+                    // ★追加: 画像URLをNotionに記録（生成できた場合のみ）
+                    ...(imagePublicUrl ? [
+                        { type: 'heading_2' as const, heading_2: { rich_text: [{ type: 'text' as const, text: { content: 'サムネイル画像URL' } }] } },
+                        { type: 'paragraph' as const, paragraph: { rich_text: [{ type: 'text' as const, text: { content: imagePublicUrl } }] } },
+                    ] : []),
                 ] as any[]
             })
 
