@@ -62,8 +62,11 @@ async function generateArticleImage(title: string, summary: string): Promise<str
     const prompt = `BtoB企業の導入事例記事のサムネイル画像。テーマ：「${title}」。内容：${summary}。プロフェッショナルで清潔感があるビジネス向けイラスト。テキストや文字は含めない。明るく信頼感のある配色。`
 
     const response = await gemini.models.generateContent({
-        model: 'gemini-2.5-flash-preview-05-20',
+        model: 'gemini-2.0-flash-exp',
         contents: prompt,
+        config: {
+            responseModalities: ['TEXT', 'IMAGE'],
+        },
     })
 
     // レスポンスから画像データ（base64）を取り出す
