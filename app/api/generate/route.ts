@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { Client } from '@notionhq/client'
 import { createClient } from '@supabase/supabase-js'
-import { GoogleGenAI } from '@google/genai'
 
 const notion = new Client({ auth: process.env.NOTION_TOKEN })
 const ai = new Anthropic()
@@ -10,8 +9,6 @@ const supabase = createClient(
     process.env.SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
-// ★追加: Gemini クライアント（Nano Banana）
-const gemini = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! })
 const notionImageUrlPropertyName = process.env.NOTION_IMAGE_URL_PROPERTY ?? 'Thumbnail Image URL'
 
 const PROMPT = `
@@ -58,25 +55,43 @@ async function fetchPageText(url: string): Promise<string> {
     return text.slice(0, 6000)
 }
 
-// ★追加: Nano Banana（Gemini 2.5 Flash Image）で画像を生成し、base64を返す
+// OpenAI Images API で画像を生成し、data URL を返す
 async function generateArticleImage(title: string, summary: string): Promise<string | null> {
+    if (!process.env.OPENAI_API_KEY) {
+        throw new Error('OPENAI_API_KEY is not set')
+    }
+
     const prompt = `BtoB企業の導入事例記事のサムネイル画像。テーマ：「${title}」。内容：${summary}。プロフェッショナルで清潔感があるビジネス向けイラスト。テキストや文字は含めない。明るく信頼感のある配色。`
 
-    const response = await gemini.models.generateContent({
-        model: 'gemini-2.5-flash-image',
-        contents: prompt,
-        config: {
-            responseModalities: ['TEXT', 'IMAGE'],
+    const response = await fetch('https://api.openai.com/v1/images/generations', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
         },
+        body: JSON.stringify({
+            model: process.env.OPENAI_IMAGE_MODEL ?? 'gpt-image-1',
+            prompt,
+            size: process.env.OPENAI_IMAGE_SIZE ?? '1024x1024',
+            quality: process.env.OPENAI_IMAGE_QUALITY ?? 'low',
+            output_format: process.env.OPENAI_IMAGE_FORMAT ?? 'png',
+        }),
     })
 
-    // レスポンスから画像データ（base64）を取り出す
-    const parts = response.candidates?.[0]?.content?.parts ?? []
-    for (const part of parts as any[]) {
-        if (part.inlineData?.mimeType?.startsWith('image/')) {
-            return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`
-        }
+    if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`OpenAI image generation failed: ${response.status} ${errorText}`)
     }
+
+    const payload = await response.json() as {
+        data?: Array<{ b64_json?: string }>
+    }
+    const imageBase64 = payload.data?.[0]?.b64_json
+    if (imageBase64) {
+        const format = process.env.OPENAI_IMAGE_FORMAT ?? 'png'
+        return `data:image/${format};base64,${imageBase64}`
+    }
+
     return null
 }
 
@@ -178,7 +193,7 @@ export async function POST(req: NextRequest) {
             const raw = (message.content[0] as any).text
             const generated = JSON.parse(raw.replace(/```json|```/g, '').trim())
 
-            // ★追加: Nano Banana で画像を生成
+            // OpenAI Images API で画像を生成
             let imagePublicUrl: string | null = null
             let imageFileExt: string | null = null
             try {
