@@ -12,6 +12,7 @@ const supabase = createClient(
 )
 // ★追加: Gemini クライアント（Nano Banana）
 const gemini = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! })
+const notionImageUrlPropertyName = process.env.NOTION_IMAGE_URL_PROPERTY ?? 'Thumbnail Image URL'
 
 const PROMPT = `
 あなたはBtoB向けサービスサイトの事例記事ライターです。
@@ -62,7 +63,7 @@ async function generateArticleImage(title: string, summary: string): Promise<str
     const prompt = `BtoB企業の導入事例記事のサムネイル画像。テーマ：「${title}」。内容：${summary}。プロフェッショナルで清潔感があるビジネス向けイラスト。テキストや文字は含めない。明るく信頼感のある配色。`
 
     const response = await gemini.models.generateContent({
-        model: 'gemini-2.0-flash-preview-image-generation',
+        model: 'gemini-2.5-flash-image',
         contents: prompt,
         config: {
             responseModalities: ['TEXT', 'IMAGE'],
@@ -79,13 +80,23 @@ async function generateArticleImage(title: string, summary: string): Promise<str
     return null
 }
 
+function getStorageFileInfo(base64DataUrl: string, articleId: string) {
+    const [meta] = base64DataUrl.split(',')
+    const mimeType = meta.match(/:(.*?);/)?.[1] ?? 'image/png'
+    const ext = mimeType.split('/')[1] ?? 'png'
+
+    return {
+        mimeType,
+        ext,
+        fileName: `${articleId}.${ext}`,
+    }
+}
+
 // ★追加: base64画像をSupabase Storageにアップロードして永続URLを返す
 async function uploadImageToSupabase(base64DataUrl: string, articleId: string): Promise<string | null> {
     // "data:image/png;base64,xxxx" → MIMEタイプとバイナリを分離
-    const [meta, base64Data] = base64DataUrl.split(',')
-    const mimeType = meta.match(/:(.*?);/)?.[1] ?? 'image/png'
-    const ext = mimeType.split('/')[1] ?? 'png'
-    const fileName = `${articleId}.${ext}`
+    const [, base64Data] = base64DataUrl.split(',')
+    const { mimeType, fileName } = getStorageFileInfo(base64DataUrl, articleId)
 
     // base64 → Uint8Array に変換
     const binaryStr = atob(base64Data)
@@ -169,12 +180,14 @@ export async function POST(req: NextRequest) {
 
             // ★追加: Nano Banana で画像を生成
             let imagePublicUrl: string | null = null
+            let imageFileExt: string | null = null
             try {
                 log.push(`[INFO] 画像生成開始: ${generated.title}`)
                 const base64Image = await generateArticleImage(generated.title, generated.card_before)
                 if (base64Image) {
                     // 一時的なIDでSupabase Storageに保存（後でarticle IDに差し替え）
                     const tempId = `temp_${page.id}`
+                    imageFileExt = getStorageFileInfo(base64Image, tempId).ext
                     imagePublicUrl = await uploadImageToSupabase(base64Image, tempId)
                     log.push(`[OK] 画像生成・保存成功`)
                 } else {
@@ -206,10 +219,10 @@ export async function POST(req: NextRequest) {
             }
 
             // ★追加: 画像ファイルをarticle IDで正式リネーム
-            if (imagePublicUrl && saved) {
+            if (imagePublicUrl && saved && imageFileExt) {
                 try {
-                    const tempFileName = `temp_${page.id}.png`
-                    const finalFileName = `${saved.id}.png`
+                    const tempFileName = `temp_${page.id}.${imageFileExt}`
+                    const finalFileName = `${saved.id}.${imageFileExt}`
                     await supabase.storage.from('article-images').move(tempFileName, finalFileName)
 
                     // Supabaseのimage_urlも正式URLに更新
@@ -230,13 +243,21 @@ export async function POST(req: NextRequest) {
             }
 
             // NotionにSupabase IDとタイトル、Statusを書き戻す
+            const notionProperties: Record<string, any> = {
+                'Title': { title: [{ text: { content: generated.title } }] },
+                'Supabase ID': { rich_text: [{ text: { content: saved!.id } }] },
+                'Status': { status: { name: 'レビュー中' } },
+            }
+            const imageUrlProperty = page.properties?.[notionImageUrlPropertyName]
+            if (imageUrlProperty?.type === 'url') {
+                notionProperties[notionImageUrlPropertyName] = { url: imagePublicUrl }
+            } else if (imagePublicUrl) {
+                log.push(`[WARN] Notion URLプロパティ未設定: ${notionImageUrlPropertyName}`)
+            }
+
             await notion.pages.update({
                 page_id: page.id,
-                properties: {
-                    'Title': { title: [{ text: { content: generated.title } }] },
-                    'Supabase ID': { rich_text: [{ text: { content: saved!.id } }] },
-                    'Status': { status: { name: 'レビュー中' } },
-                }
+                properties: notionProperties
             })
 
             // Notionページ本文に生成コンテンツを書き込む
