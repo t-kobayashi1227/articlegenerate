@@ -273,6 +273,7 @@ export async function POST(req: NextRequest) {
             log.push(`[DONE] 生成完了: ${generated.title} (${url})`)
         }
 
+        console.log('[generate] log:', log.join('\n'))
         return NextResponse.json({ ok: true, log })
 
     } catch (e) {
