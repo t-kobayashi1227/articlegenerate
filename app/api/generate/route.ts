@@ -298,10 +298,16 @@ export async function POST(req: NextRequest) {
                     { type: 'quote', quote: { rich_text: [{ type: 'text', text: { content: `${generated.detail_quote}\n— ${generated.detail_quote_author}` } }] } },
                     { type: 'heading_2', heading_2: { rich_text: [{ type: 'text', text: { content: '全文' } }] } },
                     { type: 'paragraph', paragraph: { rich_text: [{ type: 'text', text: { content: generated.detail } }] } },
-                    // ★追加: 画像URLをNotionに記録（生成できた場合のみ）
+                    // サムネイル画像をNotionにインライン表示
                     ...(imagePublicUrl ? [
-                        { type: 'heading_2' as const, heading_2: { rich_text: [{ type: 'text' as const, text: { content: 'サムネイル画像URL' } }] } },
-                        { type: 'paragraph' as const, paragraph: { rich_text: [{ type: 'text' as const, text: { content: imagePublicUrl } }] } },
+                        { type: 'heading_2' as const, heading_2: { rich_text: [{ type: 'text' as const, text: { content: 'サムネイル画像' } }] } },
+                        {
+                            type: 'image' as const,
+                            image: {
+                                type: 'external' as const,
+                                external: { url: imagePublicUrl },
+                            },
+                        },
                     ] : []),
                 ] as any[]
             })
