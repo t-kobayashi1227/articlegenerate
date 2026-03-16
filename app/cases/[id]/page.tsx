@@ -1,161 +1,291 @@
 import { supabase } from '@/lib/supabase'
+import Image from 'next/image'
 import Link from 'next/link'
 
 export const revalidate = 0
 
+type CaseDetail = {
+    id: string
+    title: string | null
+    card_before: string | null
+    card_after: string | null
+    detail_challenge: string | null
+    detail_solution: string | null
+    detail_results: string[] | null
+    detail: string | null
+    detail_quote: string | null
+    detail_quote_author: string | null
+    image_url?: string | null
+}
+
+function splitParagraphs(value: string | null | undefined) {
+    return (value ?? '')
+        .split(/\n{2,}/)
+        .map((paragraph) => paragraph.trim())
+        .filter(Boolean)
+}
+
+function normalizeResults(value: string[] | null | undefined) {
+    return (value ?? []).map((item) => item.trim()).filter(Boolean)
+}
+
+function ContentSection({
+    index,
+    label,
+    title,
+    body,
+    dark = false,
+}: {
+    index: string
+    label: string
+    title: string
+    body: string | null
+    dark?: boolean
+}) {
+    const paragraphs = splitParagraphs(body)
+
+    return (
+        <section
+            className={
+                dark
+                    ? 'rounded-[30px] border border-white/10 bg-[#18352b] p-7 text-white shadow-[0_24px_60px_rgba(24,53,43,0.18)] md:p-9'
+                    : 'rounded-[30px] border border-[#18352b]/10 bg-white p-7 shadow-[0_20px_50px_rgba(24,53,43,0.07)] md:p-9'
+            }
+        >
+            <div className="flex items-start gap-4">
+                <div
+                    className={
+                        dark
+                            ? 'flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-sm font-semibold text-white'
+                            : 'flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#efe4d3] text-sm font-semibold text-[#18352b]'
+                    }
+                >
+                    {index}
+                </div>
+                <div>
+                    <p className={dark ? 'text-[11px] font-semibold uppercase tracking-[0.28em] text-[#d8b18d]' : 'text-[11px] font-semibold uppercase tracking-[0.28em] text-[#18352b]/45'}>
+                        {label}
+                    </p>
+                    <h2 className={dark ? 'mt-3 text-2xl font-semibold text-white' : 'mt-3 text-2xl font-semibold text-[#18352b]'}>
+                        {title}
+                    </h2>
+                </div>
+            </div>
+
+            <div className={dark ? 'mt-6 space-y-5 text-sm leading-8 text-white/78 md:text-[15px]' : 'mt-6 space-y-5 text-sm leading-8 text-[#18352b]/76 md:text-[15px]'}>
+                {paragraphs.length > 0 ? (
+                    paragraphs.map((paragraph, index) => <p key={index}>{paragraph}</p>)
+                ) : (
+                    <p>情報は準備中です。</p>
+                )}
+            </div>
+        </section>
+    )
+}
+
 export default async function CaseDetailPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = await params
-    const { data: a } = await supabase
+    const { data } = await supabase
         .from('cases_articles')
-        .select('id,title,card_before,card_after,detail_challenge,detail_solution,detail_results,detail,detail_quote,detail_quote_author')
+        .select('id,title,card_before,card_after,detail_challenge,detail_solution,detail_results,detail,detail_quote,detail_quote_author,image_url')
         .eq('id', id)
         .single()
 
-    if (!a) return (
-        <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-            <p className="text-slate-400">記事が見つかりません</p>
-        </div>
-    )
+    const article = data as CaseDetail | null
+
+    if (!article) {
+        return (
+            <main className="flex min-h-screen items-center justify-center bg-[#f6f1e8] px-6">
+                <div className="rounded-[28px] border border-[#18352b]/10 bg-white px-8 py-10 text-center shadow-[0_20px_44px_rgba(24,53,43,0.08)]">
+                    <p className="text-lg font-medium text-[#18352b]">記事が見つかりません</p>
+                    <Link href="/cases" className="mt-4 inline-flex text-sm font-semibold text-[#a35f24]">
+                        事例一覧へ戻る
+                    </Link>
+                </div>
+            </main>
+        )
+    }
+
+    const results = normalizeResults(article.detail_results)
 
     return (
-        <div className="min-h-screen bg-slate-50">
+        <main className="min-h-screen bg-[#f6f1e8] text-[#18352b]">
+            <section className="relative overflow-hidden border-b border-[#18352b]/10 bg-[linear-gradient(180deg,#f6f1e8_0%,#efe6d8_100%)]">
+                <div className="absolute inset-0">
+                    <div className="absolute left-[-6rem] top-10 h-72 w-72 rounded-full bg-[#315745]/10 blur-3xl" />
+                    <div className="absolute right-[-4rem] top-16 h-72 w-72 rounded-full bg-[#d7853c]/12 blur-3xl" />
+                </div>
 
-            {/* Hero — ガラス素材を背景グラデーションの上に使用 */}
-            <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900">
-                <div
-                    className="absolute inset-0 opacity-10"
-                    style={{
-                        backgroundImage: `linear-gradient(rgba(99,102,241,0.4) 1px, transparent 1px),
-                                         linear-gradient(90deg, rgba(99,102,241,0.4) 1px, transparent 1px)`,
-                        backgroundSize: '48px 48px',
-                    }}
-                />
-                <div className="absolute bottom-0 right-0 w-96 h-96 bg-violet-500/10 rounded-full blur-3xl" />
-
-                <div className="relative max-w-3xl mx-auto px-6 pt-10 pb-32">
-                    {/* 戻るリンク */}
+                <div className="relative mx-auto max-w-6xl px-6 py-10 md:px-8 md:py-14">
                     <Link
                         href="/cases"
-                        className="inline-flex items-center gap-2 text-slate-400 hover:text-white text-sm transition-colors duration-200 mb-8"
+                        className="inline-flex items-center gap-2 text-sm font-medium text-[#18352b]/55 transition hover:text-[#18352b]"
                     >
                         <span>←</span>
-                        <span>事例一覧へ</span>
+                        <span>事例一覧へ戻る</span>
                     </Link>
 
-                    <p className="text-indigo-400 text-xs font-bold tracking-widest uppercase mb-3">Case Study</p>
-                    <h1 className="text-3xl md:text-4xl font-bold text-white leading-tight">
-                        {a.title}
-                    </h1>
-                </div>
-            </div>
+                    <div className="mt-8 grid gap-8 lg:grid-cols-[1.08fr_0.92fr] lg:items-end">
+                        <div>
+                            <div className="flex flex-wrap items-center gap-3">
+                                <span className="rounded-full bg-[#18352b] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.24em] text-white">
+                                    Case Study
+                                </span>
+                                <span className="text-sm text-[#18352b]/45">課題整理 / 実施施策 / 成果</span>
+                            </div>
 
-            {/* Before / After — ヒーローと本文に跨る浮遊カード (iOS glass material) */}
-            <div className="max-w-3xl mx-auto px-6 -mt-16 mb-10 relative z-10">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Before glass card */}
-                    <div className="rounded-2xl bg-white/80 backdrop-blur-md border border-white/60 shadow-xl shadow-slate-900/10 p-6">
-                        <span className="inline-block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">
-                            Before
-                        </span>
-                        <p className="text-slate-700 text-sm leading-relaxed">{a.card_before}</p>
-                    </div>
+                            <h1 className="mt-6 max-w-3xl text-4xl font-semibold leading-tight md:text-6xl">
+                                {article.title}
+                            </h1>
 
-                    {/* After glass card */}
-                    <div className="rounded-2xl bg-indigo-600/90 backdrop-blur-md border border-indigo-400/30 shadow-xl shadow-indigo-900/20 p-6">
-                        <span className="inline-block text-[10px] font-bold text-indigo-200 uppercase tracking-widest mb-3">
-                            After
-                        </span>
-                        <p className="text-white text-sm leading-relaxed font-medium">{a.card_after}</p>
-                    </div>
-                </div>
-            </div>
-
-            {/* Body Content */}
-            <div className="max-w-3xl mx-auto px-6 pb-20 space-y-5">
-
-                {/* Challenge */}
-                <section className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8">
-                    <div className="flex items-center gap-3 mb-5">
-                        <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-500 text-xs font-bold">01</div>
-                        <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Challenge</h2>
-                    </div>
-                    <p className="text-slate-700 leading-[1.9] text-[15px]">{a.detail_challenge}</p>
-                </section>
-
-                {/* Solution */}
-                <section className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8">
-                    <div className="flex items-center gap-3 mb-5">
-                        <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-500 text-xs font-bold">02</div>
-                        <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Solution</h2>
-                    </div>
-                    <p className="text-slate-700 leading-[1.9] text-[15px]">{a.detail_solution}</p>
-                </section>
-
-                {/* Results */}
-                {a.detail_results?.length > 0 && (
-                    <section className="bg-gradient-to-br from-indigo-50 to-violet-50 rounded-2xl border border-indigo-100/80 shadow-sm p-8">
-                        <div className="flex items-center gap-3 mb-6">
-                            <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-600 text-xs font-bold">03</div>
-                            <h2 className="text-xs font-bold text-indigo-400 uppercase tracking-widest">Results</h2>
-                        </div>
-                        <ul className="space-y-3">
-                            {a.detail_results.map((r: string, i: number) => (
-                                <li key={i} className="flex items-start gap-4">
-                                    <span className="
-                                        flex-shrink-0 mt-0.5 w-5 h-5 rounded-full
-                                        bg-indigo-600 text-white
-                                        flex items-center justify-center
-                                        text-[10px] font-bold
-                                    ">
-                                        ✓
-                                    </span>
-                                    <span className="text-slate-700 text-sm leading-relaxed">{r}</span>
-                                </li>
-                            ))}
-                        </ul>
-                    </section>
-                )}
-
-                {/* 本文 */}
-                <section className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8">
-                    <p className="text-slate-600 leading-[2] text-[15px] whitespace-pre-line">{a.detail}</p>
-                </section>
-
-                {/* Quote — 厚いglass material風ブロック */}
-                {a.detail_quote && (
-                    <blockquote className="relative bg-white rounded-2xl border border-slate-100 shadow-sm p-8 overflow-hidden">
-                        {/* 装飾クォーテーション */}
-                        <span className="absolute top-4 left-6 text-7xl text-indigo-100 font-serif leading-none select-none" aria-hidden>
-                            &ldquo;
-                        </span>
-                        <div className="relative">
-                            <p className="text-slate-700 text-base leading-[1.9] mb-5 pt-4">{a.detail_quote}</p>
-                            <div className="flex items-center gap-3">
-                                <div className="w-8 h-[2px] bg-indigo-400 rounded-full" />
-                                <cite className="text-sm text-slate-500 not-italic font-medium">{a.detail_quote_author}</cite>
+                            <div className="mt-8 grid gap-4 md:grid-cols-2">
+                                <div className="rounded-[26px] bg-white/80 p-5 shadow-[0_16px_40px_rgba(24,53,43,0.06)] backdrop-blur">
+                                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#18352b]/45">Before</p>
+                                    <p className="mt-3 text-sm leading-7 text-[#18352b]/76">
+                                        {article.card_before || '課題サマリーは準備中です。'}
+                                    </p>
+                                </div>
+                                <div className="rounded-[26px] bg-[#18352b] p-5 text-white shadow-[0_20px_44px_rgba(24,53,43,0.16)]">
+                                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#d8b18d]">After</p>
+                                    <p className="mt-3 text-sm leading-7 text-white/82">
+                                        {article.card_after || '成果サマリーは準備中です。'}
+                                    </p>
+                                </div>
                             </div>
                         </div>
-                    </blockquote>
-                )}
 
-                {/* 戻るボタン */}
-                <div className="pt-4">
-                    <Link
-                        href="/cases"
-                        className="
-                            inline-flex items-center gap-2 px-5 py-3
-                            rounded-xl bg-white border border-slate-200
-                            text-slate-600 text-sm font-medium
-                            shadow-sm
-                            transition-all duration-200
-                            hover:-translate-x-1 hover:border-indigo-300 hover:text-indigo-600
-                            active:scale-95
-                        "
-                    >
-                        ← 事例一覧へ戻る
-                    </Link>
+                        <div className="relative overflow-hidden rounded-[34px] border border-white/40 bg-[#dce6de] shadow-[0_24px_70px_rgba(24,53,43,0.1)]">
+                            {article.image_url ? (
+                                <div className="relative aspect-[4/3]">
+                                    <Image
+                                        src={article.image_url}
+                                        alt={article.title ?? '導入事例'}
+                                        fill
+                                        priority
+                                        className="object-cover"
+                                    />
+                                </div>
+                            ) : (
+                                <div className="flex aspect-[4/3] items-center justify-center bg-[radial-gradient(circle_at_top,#d6e1d8_0%,#c2d0c4_52%,#a6b8a8_100%)]">
+                                    <span className="text-7xl font-semibold tracking-[0.12em] text-white/72">
+                                        {(article.title ?? 'C').slice(0, 1)}
+                                    </span>
+                                </div>
+                            )}
+                            <div className="absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-[#18352b]/30 to-transparent" />
+                        </div>
+                    </div>
                 </div>
-            </div>
-        </div>
+            </section>
+
+            <section className="mx-auto grid max-w-6xl gap-8 px-6 py-12 md:px-8 lg:grid-cols-[0.72fr_1.28fr] lg:py-16">
+                <aside className="lg:sticky lg:top-8 lg:self-start">
+                    <div className="space-y-5 rounded-[30px] border border-[#18352b]/10 bg-white p-6 shadow-[0_20px_50px_rgba(24,53,43,0.07)]">
+                        <div>
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[#18352b]/45">
+                                Overview
+                            </p>
+                            <h2 className="mt-3 text-2xl font-semibold">案件サマリー</h2>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div className="rounded-[24px] bg-[#f7f2ea] p-4">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#18352b]/45">課題</p>
+                                <p className="mt-2 text-sm leading-7 text-[#18352b]/76">
+                                    {article.card_before || '課題サマリーは準備中です。'}
+                                </p>
+                            </div>
+
+                            <div className="rounded-[24px] bg-[#18352b] p-4 text-white">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#d8b18d]">成果</p>
+                                <p className="mt-2 text-sm leading-7 text-white/82">
+                                    {article.card_after || '成果サマリーは準備中です。'}
+                                </p>
+                            </div>
+                        </div>
+
+                        {results.length > 0 && (
+                            <div className="rounded-[24px] border border-[#18352b]/10 p-4">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#18352b]/45">
+                                    Results
+                                </p>
+                                <ul className="mt-4 space-y-3">
+                                    {results.map((result, index) => (
+                                        <li key={index} className="flex items-start gap-3 text-sm leading-7 text-[#18352b]/76">
+                                            <span className="mt-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#d7853c] text-[11px] font-semibold text-white">
+                                                {index + 1}
+                                            </span>
+                                            <span>{result}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+
+                        <Link
+                            href="/cases"
+                            className="inline-flex w-full items-center justify-center rounded-full bg-[#18352b] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#22493b]"
+                        >
+                            一覧へ戻る
+                        </Link>
+                    </div>
+                </aside>
+
+                <div className="space-y-6">
+                    <ContentSection index="01" label="Challenge" title="導入前の課題" body={article.detail_challenge} />
+                    <ContentSection index="02" label="Solution" title="実施した施策" body={article.detail_solution} dark />
+
+                    {results.length > 0 && (
+                        <section className="rounded-[30px] border border-[#18352b]/10 bg-white p-7 shadow-[0_20px_50px_rgba(24,53,43,0.07)] md:p-9">
+                            <div className="flex items-start gap-4">
+                                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#efe4d3] text-sm font-semibold text-[#18352b]">
+                                    03
+                                </div>
+                                <div>
+                                    <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[#18352b]/45">
+                                        Results
+                                    </p>
+                                    <h2 className="mt-3 text-2xl font-semibold">得られた成果</h2>
+                                </div>
+                            </div>
+
+                            <div className="mt-7 grid gap-4 md:grid-cols-2">
+                                {results.map((result, index) => (
+                                    <div key={index} className="rounded-[24px] bg-[#f7f2ea] p-5">
+                                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#a35f24]">
+                                            Point {String(index + 1).padStart(2, '0')}
+                                        </p>
+                                        <p className="mt-3 text-sm leading-7 text-[#18352b]/76">{result}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </section>
+                    )}
+
+                    <ContentSection index="04" label="Detail" title="プロジェクト詳細" body={article.detail} />
+
+                    {article.detail_quote && (
+                        <blockquote className="relative overflow-hidden rounded-[30px] border border-[#18352b]/10 bg-[linear-gradient(180deg,#fffdfa_0%,#f4ede1_100%)] p-7 shadow-[0_20px_50px_rgba(24,53,43,0.07)] md:p-9">
+                            <span className="absolute left-6 top-2 text-[120px] leading-none text-[#d7853c]/12">
+                                “
+                            </span>
+                            <div className="relative">
+                                <p className="text-lg leading-9 text-[#18352b]/82 md:text-[22px]">
+                                    {article.detail_quote}
+                                </p>
+                                {article.detail_quote_author && (
+                                    <footer className="mt-6 flex items-center gap-3">
+                                        <span className="h-px w-10 bg-[#d7853c]" />
+                                        <cite className="text-sm not-italic text-[#18352b]/58">
+                                            {article.detail_quote_author}
+                                        </cite>
+                                    </footer>
+                                )}
+                            </div>
+                        </blockquote>
+                    )}
+                </div>
+            </section>
+        </main>
     )
 }
