@@ -178,16 +178,16 @@ export async function POST(req: NextRequest) {
     const log: string[] = [];
 
     try {
-        // ── Step 0: Supabaseの「公開」レコードをNotionと照合 ────────────────
-        // ① ステータスが「公開」以外に変わった場合 → Supabaseを非公開に更新
-        // ② タイトルが変わった場合 → Supabaseに反映
-        const { data: publishedRecords } = await supabase
+        // ── Step 0: 全レコードをNotionと照合 ──────────────────────────────────
+        // ① Supabase「公開」かつNotion「公開以外」→ 非公開化
+        // ② Supabase「公開以外」かつNotion「公開」→ 再公開（SyncedをfalseにしてStep 1に委譲）
+        // ③ Notion「公開」でタイトルが変わっていたら更新
+        const { data: allRecords } = await supabase
             .from("cases_articles")
             .select("id, notion_page_id, title, status")
-            .eq("status", "公開")
             .not("notion_page_id", "is", null);
 
-        for (const record of publishedRecords ?? []) {
+        for (const record of allRecords ?? []) {
             const pageId = record.notion_page_id as string;
 
             let notionPage: any;
@@ -201,32 +201,44 @@ export async function POST(req: NextRequest) {
             const notionStatus: string =
                 notionPage.properties?.["Status"]?.status?.name ?? "";
             const notionTitle = getNotionTitle(notionPage, "title");
+            const isPublishedInSupabase = record.status === "公開";
+            const isPublishedInNotion = notionStatus === "公開";
 
-            const updates: Record<string, string> = {};
-
-            // ① ステータスが「公開」以外になっていたら非公開化
-            if (notionStatus !== "公開") {
-                updates.status = notionStatus || "非公開";
-                log.push(
-                    `[UNPUBLISH] supabase ${record.id}: "${record.status}" → "${updates.status}"`
-                );
+            // ② 再公開：Supabaseが「公開以外」→ Notionが「公開」
+            if (!isPublishedInSupabase && isPublishedInNotion) {
+                // NotionのSyncedをfalseに戻す → Step 1が内容ごと再同期する
+                await notion.pages.update({
+                    page_id: pageId,
+                    properties: { Synced: { checkbox: false } },
+                });
+                log.push(`[REPUBLISH] supabase ${record.id}: "${record.status}" → 再公開待ち（Step 1へ委譲）`);
+                continue;
             }
 
-            // ② タイトルが変わっていたら更新
-            if (notionTitle && notionTitle !== record.title) {
-                updates.title = notionTitle;
-                log.push(
-                    `[TITLE] supabase ${record.id}: "${record.title}" → "${notionTitle}"`
-                );
-            }
-
-            if (Object.keys(updates).length > 0) {
+            // ① 非公開化：Supabaseが「公開」→ Notionが「公開以外」
+            if (isPublishedInSupabase && !isPublishedInNotion) {
                 const { error: updateErr } = await supabase
                     .from("cases_articles")
-                    .update(updates)
+                    .update({ status: notionStatus || "非公開" })
                     .eq("id", record.id);
                 if (updateErr) {
                     log.push(`[ERROR] Supabase更新失敗: ${record.id} - ${updateErr.message}`);
+                } else {
+                    log.push(`[UNPUBLISH] supabase ${record.id}: "公開" → "${notionStatus || "非公開"}"`);
+                }
+                continue;
+            }
+
+            // ③ タイトル更新：両方「公開」でタイトルが変わっていたら更新
+            if (isPublishedInSupabase && isPublishedInNotion && notionTitle && notionTitle !== record.title) {
+                const { error: updateErr } = await supabase
+                    .from("cases_articles")
+                    .update({ title: notionTitle })
+                    .eq("id", record.id);
+                if (updateErr) {
+                    log.push(`[ERROR] Supabase更新失敗: ${record.id} - ${updateErr.message}`);
+                } else {
+                    log.push(`[TITLE] supabase ${record.id}: "${record.title}" → "${notionTitle}"`);
                 }
             }
         }
