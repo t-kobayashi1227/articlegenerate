@@ -178,6 +178,60 @@ export async function POST(req: NextRequest) {
     const log: string[] = [];
 
     try {
+        // ── Step 0: Supabaseの「公開」レコードをNotionと照合 ────────────────
+        // ① ステータスが「公開」以外に変わった場合 → Supabaseを非公開に更新
+        // ② タイトルが変わった場合 → Supabaseに反映
+        const { data: publishedRecords } = await supabase
+            .from("cases_articles")
+            .select("id, notion_page_id, title, status")
+            .eq("status", "公開")
+            .not("notion_page_id", "is", null);
+
+        for (const record of publishedRecords ?? []) {
+            const pageId = record.notion_page_id as string;
+
+            let notionPage: any;
+            try {
+                notionPage = await notion.pages.retrieve({ page_id: pageId });
+            } catch {
+                log.push(`[WARN] Notion page取得失敗: ${pageId}`);
+                continue;
+            }
+
+            const notionStatus: string =
+                notionPage.properties?.["Status"]?.status?.name ?? "";
+            const notionTitle = getNotionTitle(notionPage, "title");
+
+            const updates: Record<string, string> = {};
+
+            // ① ステータスが「公開」以外になっていたら非公開化
+            if (notionStatus !== "公開") {
+                updates.status = notionStatus || "非公開";
+                log.push(
+                    `[UNPUBLISH] supabase ${record.id}: "${record.status}" → "${updates.status}"`
+                );
+            }
+
+            // ② タイトルが変わっていたら更新
+            if (notionTitle && notionTitle !== record.title) {
+                updates.title = notionTitle;
+                log.push(
+                    `[TITLE] supabase ${record.id}: "${record.title}" → "${notionTitle}"`
+                );
+            }
+
+            if (Object.keys(updates).length > 0) {
+                const { error: updateErr } = await supabase
+                    .from("cases_articles")
+                    .update(updates)
+                    .eq("id", record.id);
+                if (updateErr) {
+                    log.push(`[ERROR] Supabase更新失敗: ${record.id} - ${updateErr.message}`);
+                }
+            }
+        }
+
+        // ── Step 1: Notionの「公開」かつ「Synced=false」を全フィールド同期 ──
         const { results } = await notion.databases.query({
             database_id: process.env.NOTION_DATABASE_ID!,
             filter: {
