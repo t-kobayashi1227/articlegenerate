@@ -34,27 +34,23 @@ function normalizeHeading(text: string): string {
 }
 
 type Sections = {
-    category?: string;
-    client?: string;
-    challenge?: string;
-    solution?: string;
-    results?: string[]; // 箇条書き
-    quote_text?: string;
-    quote_author?: string;
-    quote_role?: string;
+    card_before?: string;
+    card_after?: string;
     detail_challenge?: string;
     detail_solution?: string;
+    detail_results?: string[]; // 箇条書き
+    detail_quote?: string;
+    detail_quote_author?: string;
     detail?: string;
 };
 
 const HEADING_TO_KEY: Record<string, keyof Sections> = {
-    "カテゴリ / クライアント": "category", // category と client を同時に解析
-    "CHALLENGE": "challenge",
-    "SOLUTION": "solution",
-    "DETAIL CHALLENGE": "detail_challenge",
-    "DETAIL SOLUTION": "detail_solution",
-    "RESULTS": "results",
-    "担当者の声": "quote_text",
+    "課題（BEFORE）": "card_before",
+    "成果（AFTER）": "card_after",
+    "詳細な課題": "detail_challenge",
+    "解決策": "detail_solution",
+    "成果": "detail_results",
+    "担当者コメント": "detail_quote",
     "全文": "detail",
 };
 
@@ -88,19 +84,21 @@ function parseSectionsFromBlocks(blocks: any[]): Sections {
     const out: Sections = {};
     let currentKey: keyof Sections | null = null;
 
-    // 文字列系セクションのバッファ
+    // 文章を溜めるバッファ（文字列系のセクション用）
     const buffers: Record<string, string[]> = {
-        category: [],
-        challenge: [],
-        solution: [],
+        card_before: [],
+        card_after: [],
         detail_challenge: [],
         detail_solution: [],
-        quote_text: [],
+        detail_quote: [],
         detail: [],
     };
 
-    // 成果は配列で保持
+    // results は配列で保持
     const results: string[] = [];
+
+    // コメントauthor用（担当者コメントセクション内に “— 〜” が来たら拾う）
+    let quoteAuthor: string | undefined;
 
     for (const b of blocks) {
         // 見出しが来たらセクション切り替え
@@ -111,73 +109,56 @@ function parseSectionsFromBlocks(blocks: any[]): Sections {
             continue;
         }
 
-        // セクション未選択ならスキップ
+        // セクション未選択ならスキップ（テンプレ外の文章は無視する運用）
         if (!currentKey) continue;
 
-        // 成果セクション：箇条書き・段落どちらも1行=1成果
-        if (currentKey === "results") {
-            const t = getRichText(b);
-            if (t) results.push(t);
-            continue;
-        }
-
-        // 担当者の声：quote ブロック内に `quote_text\n— quote_author（quote_role）` 形式で入る
-        if (currentKey === "quote_text") {
-            const t = getRichText(b);
-            if (!t) continue;
-
-            // quote_text と author/role が改行区切りで入っている場合を考慮
-            const lines = t.split("\n").map((l) => l.trim()).filter(Boolean);
-            for (const line of lines) {
-                // "— 役職（企業種類）" の行を author / role に分解
-                if (line.startsWith("—") || line.startsWith("ー") || line.startsWith("-")) {
-                    const authorPart = line.replace(/^[-ー—]\s*/, "").trim();
-                    // 「役職（企業種類）」形式をパース
-                    const roleMatch = authorPart.match(/^(.+?)（(.+?)）\s*$/);
-                    if (roleMatch) {
-                        out.quote_author = roleMatch[1].trim() || undefined;
-                        out.quote_role = roleMatch[2].trim() || undefined;
-                    } else {
-                        out.quote_author = authorPart || undefined;
-                    }
-                } else {
-                    buffers.quote_text.push(line);
-                }
-            }
-            continue;
-        }
-
-        // カテゴリ / クライアント：「category｜client」形式の段落を分解
-        if (currentKey === "category") {
-            const t = getRichText(b);
-            if (!t) continue;
-            const parts = t.split("｜").map((p) => p.trim());
-            if (parts.length >= 2) {
-                buffers.category.push(parts[0]);
-                out.client = parts.slice(1).join("｜").trim() || undefined;
+        // 箇条書きはResultsとして扱う（成果セクション中のみ）
+        if (currentKey === "detail_results") {
+            if (b.type === "bulleted_list_item" || b.type === "numbered_list_item") {
+                const t = getRichText(b);
+                if (t) results.push(t);
             } else {
-                buffers.category.push(t);
+                // 成果セクション内に段落で書いた場合も拾う（1行=1成果として扱う）
+                const t = getRichText(b);
+                if (t) results.push(t);
             }
             continue;
         }
 
-        // その他の文字列系セクション
+        // 担当者コメント：quote と author を拾う
+        if (currentKey === "detail_quote") {
+            const t = getRichText(b);
+            if (!t) continue;
+
+            // 例： "— 山田太郎 / 株式会社〇〇 役職" を author とみなす
+            if (t.startsWith("—") || t.startsWith("ー") || t.startsWith("-")) {
+                quoteAuthor = t.replace(/^[-ー—]\s*/, "").trim();
+                continue;
+            }
+
+            buffers.detail_quote.push(t);
+            continue;
+        }
+
+        // その他（文字列系）は段落/引用などのテキストを連結
         const t = getRichText(b);
         if (!t) continue;
+
         if (currentKey in buffers) {
-            (buffers[currentKey as string] as string[]).push(t);
+            buffers[currentKey].push(t);
         }
     }
 
-    // バッファを結合して out へ
-    out.category = buffers.category.join("\n\n").trim() || undefined;
-    out.challenge = buffers.challenge.join("\n\n").trim() || undefined;
-    out.solution = buffers.solution.join("\n\n").trim() || undefined;
+    // バッファを結合してoutへ
+    out.card_before = buffers.card_before.join("\n\n").trim() || undefined;
+    out.card_after = buffers.card_after.join("\n\n").trim() || undefined;
     out.detail_challenge = buffers.detail_challenge.join("\n\n").trim() || undefined;
     out.detail_solution = buffers.detail_solution.join("\n\n").trim() || undefined;
-    out.quote_text = buffers.quote_text.join("\n\n").trim() || undefined;
+    out.detail_quote = buffers.detail_quote.join("\n\n").trim() || undefined;
+    out.detail_quote_author = quoteAuthor || undefined;
     out.detail = buffers.detail.join("\n\n").trim() || undefined;
-    out.results = results.length ? results : undefined;
+
+    out.detail_results = results.length ? results : undefined;
 
     return out;
 }
@@ -304,16 +285,13 @@ export async function POST(req: NextRequest) {
                 .from("cases_articles")
                 .update({
                     title: title || undefined,
-                    category: sections.category ?? null,
-                    client: sections.client ?? null,
-                    challenge: sections.challenge ?? null,
-                    solution: sections.solution ?? null,
-                    results: sections.results ?? null,
-                    quote_text: sections.quote_text ?? null,
-                    quote_author: sections.quote_author ?? null,
-                    quote_role: sections.quote_role ?? null,
+                    card_before: sections.card_before ?? null,
+                    card_after: sections.card_after ?? null,
                     detail_challenge: sections.detail_challenge ?? null,
                     detail_solution: sections.detail_solution ?? null,
+                    detail_results: sections.detail_results ?? null,
+                    detail_quote: sections.detail_quote ?? null,
+                    detail_quote_author: sections.detail_quote_author ?? null,
                     detail: sections.detail ?? null,
                     status: "公開",
                 })
