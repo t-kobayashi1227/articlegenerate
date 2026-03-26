@@ -14,17 +14,20 @@ const notionImageUrlPropertyName = process.env.NOTION_IMAGE_URL_PROPERTY ?? 'Thu
 const PROMPT = `
 あなたはBtoB向けサービスサイトの事例記事ライターです。
 提供された記事テキストを分析し、以下のJSON形式のみで回答してください。
-説明文やMarkdownは不要です。JSONのみ出力してください。
+説明文やMarkdownコードブロック（\`\`\`json など）は不要です。JSONのみ出力してください。
 
 {
   "title": "記事タイトル（20字以内）",
-  "card_before": "課題（BEFORE）の要約（80字以内）",
-  "card_after": "成果（AFTER）の要約（数値含む80字以内）",
-  "detail_challenge": "詳しい課題説明（200字程度）",
+  "category": "記事カテゴリ（例: 教育 × AI）（20字以内）",
+  "client": "業界名（企業名は出さずぼかして表現。例: 新潟県内 マーケティング企業）",
+  "challenge": "導入前の課題の要約（100字程度）",
+  "solution": "解決策・成果の要約（数値を含め100字程度）",
+  "results": ["具体的な成果1（数値含む）", "具体的な成果2（数値含む）", "具体的な成果3", "具体的な成果4"],
+  "quote_text": "担当者の声・コメント（100字程度、自然な話し言葉で）",
+  "quote_author": "担当者の役職（例: 営業部長）",
+  "quote_role": "企業種類（例: マーケティング企業）",
+  "detail_challenge": "詳しい課題説明（300字程度）",
   "detail_solution": "解決策の詳細（300字程度）",
-  "detail_results": ["成果1", "成果2", "成果3", "成果4"],
-  "detail_quote": "担当者コメント（100字程度）",
-  "detail_quote_author": "担当者名 / 会社・役職",
   "detail": "読み物としての全文（1000〜1500字）。課題背景→解決策の詳細→成果→担当者の声の順で自然な文章で。箇条書き不可。"
 }
 `
@@ -198,7 +201,7 @@ export async function POST(req: NextRequest) {
             let imageFileExt: string | null = null
             try {
                 log.push(`[INFO] 画像生成開始: ${generated.title}`)
-                const base64Image = await generateArticleImage(generated.title, generated.card_before)
+                const base64Image = await generateArticleImage(generated.title, generated.challenge)
                 if (base64Image) {
                     // 一時的なIDでSupabase Storageに保存（後でarticle IDに差し替え）
                     const tempId = `temp_${page.id}`
@@ -276,7 +279,7 @@ export async function POST(req: NextRequest) {
             })
 
             // Notionページ本文に生成コンテンツを書き込む
-            const resultBlocks = (generated.detail_results as string[]).map((r) => ({
+            const resultBlocks = (generated.results as string[]).map((r) => ({
                 type: 'bulleted_list_item' as const,
                 bulleted_list_item: { rich_text: [{ type: 'text' as const, text: { content: r } }] }
             }))
@@ -284,18 +287,20 @@ export async function POST(req: NextRequest) {
             await notion.blocks.children.append({
                 block_id: page.id,
                 children: [
-                    { type: 'heading_2', heading_2: { rich_text: [{ type: 'text', text: { content: '課題（BEFORE）' } }] } },
-                    { type: 'paragraph', paragraph: { rich_text: [{ type: 'text', text: { content: generated.card_before } }] } },
-                    { type: 'heading_2', heading_2: { rich_text: [{ type: 'text', text: { content: '成果（AFTER）' } }] } },
-                    { type: 'paragraph', paragraph: { rich_text: [{ type: 'text', text: { content: generated.card_after } }] } },
-                    { type: 'heading_2', heading_2: { rich_text: [{ type: 'text', text: { content: '詳細な課題' } }] } },
+                    { type: 'heading_2', heading_2: { rich_text: [{ type: 'text', text: { content: 'カテゴリ / クライアント' } }] } },
+                    { type: 'paragraph', paragraph: { rich_text: [{ type: 'text', text: { content: `${generated.category}｜${generated.client}` } }] } },
+                    { type: 'heading_2', heading_2: { rich_text: [{ type: 'text', text: { content: 'CHALLENGE' } }] } },
+                    { type: 'paragraph', paragraph: { rich_text: [{ type: 'text', text: { content: generated.challenge } }] } },
+                    { type: 'heading_2', heading_2: { rich_text: [{ type: 'text', text: { content: 'SOLUTION' } }] } },
+                    { type: 'paragraph', paragraph: { rich_text: [{ type: 'text', text: { content: generated.solution } }] } },
+                    { type: 'heading_2', heading_2: { rich_text: [{ type: 'text', text: { content: 'DETAIL CHALLENGE' } }] } },
                     { type: 'paragraph', paragraph: { rich_text: [{ type: 'text', text: { content: generated.detail_challenge } }] } },
-                    { type: 'heading_2', heading_2: { rich_text: [{ type: 'text', text: { content: '解決策' } }] } },
+                    { type: 'heading_2', heading_2: { rich_text: [{ type: 'text', text: { content: 'DETAIL SOLUTION' } }] } },
                     { type: 'paragraph', paragraph: { rich_text: [{ type: 'text', text: { content: generated.detail_solution } }] } },
-                    { type: 'heading_2', heading_2: { rich_text: [{ type: 'text', text: { content: '成果' } }] } },
+                    { type: 'heading_2', heading_2: { rich_text: [{ type: 'text', text: { content: 'RESULTS' } }] } },
                     ...resultBlocks,
-                    { type: 'heading_2', heading_2: { rich_text: [{ type: 'text', text: { content: '担当者コメント' } }] } },
-                    { type: 'quote', quote: { rich_text: [{ type: 'text', text: { content: `${generated.detail_quote}\n— ${generated.detail_quote_author}` } }] } },
+                    { type: 'heading_2', heading_2: { rich_text: [{ type: 'text', text: { content: '担当者の声' } }] } },
+                    { type: 'quote', quote: { rich_text: [{ type: 'text', text: { content: `${generated.quote_text}\n— ${generated.quote_author}（${generated.quote_role}）` } }] } },
                     { type: 'heading_2', heading_2: { rich_text: [{ type: 'text', text: { content: '全文' } }] } },
                     { type: 'paragraph', paragraph: { rich_text: [{ type: 'text', text: { content: generated.detail } }] } },
                     // サムネイル画像をNotionにインライン表示
