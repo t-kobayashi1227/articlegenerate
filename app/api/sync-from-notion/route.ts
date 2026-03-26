@@ -115,23 +115,23 @@ function parseSectionsFromBlocks(blocks: any[]): Sections {
         if (!currentKey) continue;
 
         // 成果セクション：箇条書き・段落どちらも1行=1成果
-        if (currentKey === “results”) {
+        if (currentKey === "results") {
             const t = getRichText(b);
             if (t) results.push(t);
             continue;
         }
 
         // 担当者の声：quote ブロック内に `quote_text\n— quote_author（quote_role）` 形式で入る
-        if (currentKey === “quote_text”) {
+        if (currentKey === "quote_text") {
             const t = getRichText(b);
             if (!t) continue;
 
             // quote_text と author/role が改行区切りで入っている場合を考慮
-            const lines = t.split(“\n”).map((l) => l.trim()).filter(Boolean);
+            const lines = t.split("\n").map((l) => l.trim()).filter(Boolean);
             for (const line of lines) {
-                // “— 役職（企業種類）” の行を author / role に分解
-                if (line.startsWith(“—“) || line.startsWith(“ー”) || line.startsWith(“-”)) {
-                    const authorPart = line.replace(/^[-ー—]\s*/, “”).trim();
+                // "— 役職（企業種類）" の行を author / role に分解
+                if (line.startsWith("—") || line.startsWith("ー") || line.startsWith("-")) {
+                    const authorPart = line.replace(/^[-ー—]\s*/, "").trim();
                     // 「役職（企業種類）」形式をパース
                     const roleMatch = authorPart.match(/^(.+?)（(.+?)）\s*$/);
                     if (roleMatch) {
@@ -148,13 +148,13 @@ function parseSectionsFromBlocks(blocks: any[]): Sections {
         }
 
         // カテゴリ / クライアント：「category｜client」形式の段落を分解
-        if (currentKey === “category”) {
+        if (currentKey === "category") {
             const t = getRichText(b);
             if (!t) continue;
-            const parts = t.split(“｜”).map((p) => p.trim());
+            const parts = t.split("｜").map((p) => p.trim());
             if (parts.length >= 2) {
                 buffers.category.push(parts[0]);
-                out.client = parts.slice(1).join(“｜”).trim() || undefined;
+                out.client = parts.slice(1).join("｜").trim() || undefined;
             } else {
                 buffers.category.push(t);
             }
@@ -170,13 +170,13 @@ function parseSectionsFromBlocks(blocks: any[]): Sections {
     }
 
     // バッファを結合して out へ
-    out.category = buffers.category.join(“\n\n”).trim() || undefined;
-    out.challenge = buffers.challenge.join(“\n\n”).trim() || undefined;
-    out.solution = buffers.solution.join(“\n\n”).trim() || undefined;
-    out.detail_challenge = buffers.detail_challenge.join(“\n\n”).trim() || undefined;
-    out.detail_solution = buffers.detail_solution.join(“\n\n”).trim() || undefined;
-    out.quote_text = buffers.quote_text.join(“\n\n”).trim() || undefined;
-    out.detail = buffers.detail.join(“\n\n”).trim() || undefined;
+    out.category = buffers.category.join("\n\n").trim() || undefined;
+    out.challenge = buffers.challenge.join("\n\n").trim() || undefined;
+    out.solution = buffers.solution.join("\n\n").trim() || undefined;
+    out.detail_challenge = buffers.detail_challenge.join("\n\n").trim() || undefined;
+    out.detail_solution = buffers.detail_solution.join("\n\n").trim() || undefined;
+    out.quote_text = buffers.quote_text.join("\n\n").trim() || undefined;
+    out.detail = buffers.detail.join("\n\n").trim() || undefined;
     out.results = results.length ? results : undefined;
 
     return out;
