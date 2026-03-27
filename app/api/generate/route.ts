@@ -65,7 +65,30 @@ async function generateArticleImage(title: string, summary: string): Promise<str
         throw new Error('OPENAI_API_KEY is not set')
     }
 
-    const prompt = `BtoB企業の導入事例記事のサムネイル用写真。テーマ：「${title}」。内容：${summary}。スタイル：フォトリアリスティックなビジネス写真でプロフェッショナルな雰囲気。テキスト・ロゴ・イラストは含めない。信頼感があり落ち着いたトーン。`
+    const prompt = `BtoB企業の導入事例記事のサムネイル用ビジュアル。
+
+テーマ：「${title}」
+内容：「${summary}」
+
+スタイル：
+モダンで統一感のあるビジネス向けビジュアル。
+柔らかいグラデーション背景（オレンジ〜ブルー系）。
+明るく清潔感のあるトーンで、ノイズが少なくミニマル。
+
+構図：
+斜め上からの俯瞰構図、またはUIが浮かんでいるようなレイアウト。
+画面中央〜右側に余白を持たせる。
+
+要素：
+・デジタルUI（ダッシュボード、AI、データ、業務システム）
+・抽象的なビジネスシーン
+・人物は小さく補助的に配置（主役にしない）
+
+禁止：
+テキスト、ロゴ、文字、過度なリアル人物、雑多な背景
+
+クオリティ：
+フォトリアリスティック × UIデザイン風、統一感重視、企業サイト用`
 
     const response = await fetch('https://api.openai.com/v1/images/generations', {
         method: 'POST',
