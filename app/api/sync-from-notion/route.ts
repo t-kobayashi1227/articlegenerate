@@ -350,14 +350,23 @@ export async function POST(req: NextRequest) {
                 page.properties?.[notionImageUrlPropertyName]?.url ?? null;
 
             if (sections.thumbnail_image_url) {
-                try {
-                    resolvedImageUrl = await uploadImageUrlToSupabase(
-                        sections.thumbnail_image_url,
-                        supabaseId
-                    );
-                    log.push(`[OK] サムネイル画像をSupabase Storageにアップロード: ${supabaseId}`);
-                } catch (e: any) {
-                    log.push(`[WARN] サムネイル画像アップロード失敗（スキップ）: ${e.message}`);
+                const supabaseStorageBase = supabase.storage.from("article-images").getPublicUrl("").data.publicUrl.replace(/\/[^/]*$/, "/");
+                const alreadyInStorage = sections.thumbnail_image_url.startsWith(supabaseStorageBase);
+
+                if (alreadyInStorage) {
+                    // すでにSupabase StorageのURLならアップロードスキップ
+                    resolvedImageUrl = sections.thumbnail_image_url;
+                    log.push(`[SKIP] サムネイル画像は既にStorageにあるためスキップ: ${supabaseId}`);
+                } else {
+                    try {
+                        resolvedImageUrl = await uploadImageUrlToSupabase(
+                            sections.thumbnail_image_url,
+                            supabaseId
+                        );
+                        log.push(`[OK] サムネイル画像をSupabase Storageにアップロード: ${supabaseId}`);
+                    } catch (e: any) {
+                        log.push(`[WARN] サムネイル画像アップロード失敗（スキップ）: ${e.message}`);
+                    }
                 }
             }
 
