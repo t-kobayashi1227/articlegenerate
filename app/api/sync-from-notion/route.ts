@@ -411,6 +411,9 @@ export async function POST(req: NextRequest) {
                     ...(updated?.published_at
                         ? { 'Synced At': { date: { start: toJST(updated.published_at) } } }
                         : {}),
+                    ...(resolvedImageUrl
+                        ? { [notionImageUrlPropertyName]: { url: resolvedImageUrl } }
+                        : {}),
                 },
             });
 
