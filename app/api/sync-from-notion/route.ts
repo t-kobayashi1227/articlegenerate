@@ -371,6 +371,14 @@ export async function POST(req: NextRequest) {
                 }
             }
 
+            // published_at が未設定なら初回公開日時として JST をセット
+            const { data: current } = await supabase
+                .from("cases_articles")
+                .select("published_at")
+                .eq("id", supabaseId)
+                .single();
+            const publishedAt = current?.published_at ?? toJstIsoString();
+
             // Supabaseへ反映（Notionが編集元）
             const { data: updated, error: upErr } = await supabase
                 .from("cases_articles")
@@ -389,6 +397,7 @@ export async function POST(req: NextRequest) {
                     detail_solution: sections.detail_solution ?? null,
                     detail: sections.detail ?? null,
                     status: "公開",
+                    published_at: publishedAt,
                 })
                 .eq("id", supabaseId)
                 .select("published_at")

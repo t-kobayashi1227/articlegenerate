@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdmin } from "../../../lib/supabase/admin";
 import Anthropic from "@anthropic-ai/sdk";
-import { toJstIsoString } from "../../../lib/datetime";
+import { toJstIsoString } from "../../../../lib/datetime";
 
 export const runtime = "nodejs";
 

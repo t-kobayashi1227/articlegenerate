@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdmin } from "../../../lib/supabase/admin";
 import { X_SEARCH } from "../../../lib/xSearchConfig";
-import { toJstIsoString } from "../../../lib/datetime";
+import { toJstIsoString } from "../../../../lib/datetime";
 
 export const runtime = "nodejs";
 
