@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdmin } from "../../../lib/supabase/admin";
 import Anthropic from "@anthropic-ai/sdk";
+import { toJstIsoString } from "../../../lib/datetime";
 
 export const runtime = "nodejs";
 
@@ -110,7 +111,7 @@ export async function POST(req: Request) {
             await supabase.from("x_posts").update({
                 ai_error: `Invalid JSON from Claude: ${textOut.slice(0, 500)}`,
                 ai_model: MODEL,
-                ai_generated_at: new Date().toISOString(),
+                ai_generated_at: toJstIsoString(),
             }).eq("x_post_id", body.x_post_id);
 
             return NextResponse.json(
@@ -127,7 +128,7 @@ export async function POST(req: Request) {
                 text_edited: parsed.body,
                 status: "edited",
                 ai_model: MODEL,
-                ai_generated_at: new Date().toISOString(),
+                ai_generated_at: toJstIsoString(),
                 ai_error: null,
             })
             .eq("x_post_id", body.x_post_id);

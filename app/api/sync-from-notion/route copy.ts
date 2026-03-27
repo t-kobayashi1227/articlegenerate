@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Client } from "@notionhq/client";
 import { createClient } from "@supabase/supabase-js";
+import { toJstIsoString } from "../../../lib/datetime";
 
 export const runtime = "nodejs";
 
@@ -305,17 +306,12 @@ export async function POST(req: NextRequest) {
             }
 
             // 同期済みにする（published_at があれば JST変換してSynced Atにも反映）
-            const toJST = (iso: string) =>
-                new Date(new Date(iso).getTime() + 9 * 60 * 60 * 1000)
-                    .toISOString()
-                    .replace('Z', '+09:00')
-
             await notion.pages.update({
                 page_id: pageId,
                 properties: {
                     Synced: { checkbox: true },
                     ...(updated?.published_at
-                        ? { 'Synced At': { date: { start: toJST(updated.published_at) } } }
+                        ? { 'Synced At': { date: { start: toJstIsoString(new Date(updated.published_at)) } } }
                         : {}),
                 },
             });

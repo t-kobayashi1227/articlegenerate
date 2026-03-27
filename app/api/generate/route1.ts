@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { Client } from '@notionhq/client'
 import { createClient } from '@supabase/supabase-js'
+import { toJstIsoString } from '../../../lib/datetime'
 
 const notion = new Client({ auth: process.env.NOTION_TOKEN })
 const ai = new Anthropic()
@@ -214,7 +215,6 @@ export async function POST(req: NextRequest) {
             }
 
             // Supabaseに保存（image_urlも一緒に保存）
-            const jstNow = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().replace('Z', '+09:00')
             const { data: saved, error } = await supabase
                 .from('cases_articles')
                 .insert({
@@ -223,7 +223,7 @@ export async function POST(req: NextRequest) {
                     ...generated,
                     image_url: imagePublicUrl,   // ★追加
                     status: 'レビュー中',
-                    created_at: jstNow,
+                    created_at: toJstIsoString(),
                 })
                 .select('id')
                 .single()

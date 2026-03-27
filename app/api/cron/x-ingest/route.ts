@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdmin } from "../../../lib/supabase/admin";
 import { X_SEARCH } from "../../../lib/xSearchConfig";
+import { toJstIsoString } from "../../../lib/datetime";
 
 export const runtime = "nodejs";
 
@@ -168,7 +169,7 @@ export async function GET(req: Request) {
         quote_count: m.quote_count ?? 0,
         url: postUrl,
         query: q,
-        fetched_at: new Date().toISOString(),
+        fetched_at: toJstIsoString(),
     };
 
     // 6) upsert（1件だけ）
@@ -187,7 +188,7 @@ export async function GET(req: Request) {
     const { error: updErr } = await supabase
         .from("fetch_state")
         .upsert(
-            { key: "x_since_id", value: newestIdSeen, updated_at: new Date().toISOString() },
+            { key: "x_since_id", value: newestIdSeen, updated_at: toJstIsoString() },
             { onConflict: "key" }
         );
 
