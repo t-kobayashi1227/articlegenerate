@@ -19,5 +19,5 @@ export function toJstIsoString(date: Date = new Date()): string {
             .map((part) => [part.type, part.value])
     )
 
-    return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}+09:00`
+    return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`
 }

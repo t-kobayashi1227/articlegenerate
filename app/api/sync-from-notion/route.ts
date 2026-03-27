@@ -414,7 +414,7 @@ export async function POST(req: NextRequest) {
                 properties: {
                     Synced: { checkbox: true },
                     ...(updated?.published_at
-                        ? { 'Synced At': { date: { start: toJstIsoString(new Date(updated.published_at)) } } }
+                        ? { 'Synced At': { date: { start: new Date(updated.published_at).toISOString() } } }
                         : {}),
                     ...(resolvedImageUrl
                         ? { [notionImageUrlPropertyName]: { url: resolvedImageUrl } }
