@@ -293,12 +293,6 @@ export async function POST(req: NextRequest) {
             const blocks = await fetchBlocks(pageId);
             const sections = parseSectionsFromBlocks(blocks);
 
-            // 最低限 detail が無いと公開データとして弱いのでガード（任意）
-            if (!sections.detail) {
-                log.push(`[SKIP] page ${pageId}: 本文（全文）が空`);
-                continue;
-            }
-
             // Supabaseへ反映（Notionが編集元）
             const { data: updated, error: upErr } = await supabase
                 .from("cases_articles")
