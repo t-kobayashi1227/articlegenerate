@@ -11,6 +11,8 @@ const supabase = createClient(
     process.env.SUPABASE_SERVICE_KEY!
 );
 
+const notionImageUrlPropertyName = process.env.NOTION_IMAGE_URL_PROPERTY ?? "Thumbnail Image URL";
+
 // -----------------------
 // Notionブロック → プレーン文字列
 // -----------------------
@@ -45,6 +47,7 @@ type Sections = {
     detail_challenge?: string;
     detail_solution?: string;
     detail?: string;
+    thumbnail_image_url?: string; // Notionブロックから取得した画像URL
 };
 
 const HEADING_TO_KEY: Record<string, keyof Sections> = {
@@ -56,6 +59,7 @@ const HEADING_TO_KEY: Record<string, keyof Sections> = {
     "RESULTS": "results",
     "担当者の声": "quote_text",
     "全文": "detail",
+    "サムネイル画像": "thumbnail_image_url",
 };
 
 // -----------------------
@@ -147,6 +151,15 @@ function parseSectionsFromBlocks(blocks: any[]): Sections {
             continue;
         }
 
+        // サムネイル画像：imageブロックからURLを取得
+        if (currentKey === "thumbnail_image_url") {
+            if (b.type === "image") {
+                const imgUrl = b.image?.file?.url ?? b.image?.external?.url ?? null;
+                if (imgUrl) out.thumbnail_image_url = imgUrl;
+            }
+            continue;
+        }
+
         // カテゴリ / クライアント：「category｜client」形式の段落を分解
         if (currentKey === "category") {
             const t = getRichText(b);
@@ -182,10 +195,36 @@ function parseSectionsFromBlocks(blocks: any[]): Sections {
     return out;
 }
 
-// NotionのTitle列名は環境で違うので必要なら変更
-function getNotionTitle(page: any, titlePropName = "title"): string {
-    const prop = page.properties?.[titlePropName];
-    return (prop?.title ?? []).map((t: any) => t.plain_text).join("").trim();
+// Notion画像URL（一時URLも可）をfetchしてSupabase Storageにアップロード
+async function uploadImageUrlToSupabase(imageUrl: string, articleId: string): Promise<string | null> {
+    const res = await fetch(imageUrl);
+    if (!res.ok) throw new Error(`画像fetch失敗: ${res.status} ${imageUrl}`);
+
+    const contentType = res.headers.get("content-type") ?? "image/png";
+    const ext = contentType.split("/")[1]?.split(";")[0] ?? "png";
+    const fileName = `${articleId}.${ext}`;
+
+    const bytes = new Uint8Array(await res.arrayBuffer());
+
+    const { error } = await supabase.storage
+        .from("article-images")
+        .upload(fileName, bytes, { contentType, upsert: true });
+
+    if (error) throw new Error(`Storage upload失敗: ${error.message}`);
+
+    const { data } = supabase.storage.from("article-images").getPublicUrl(fileName);
+    return data.publicUrl;
+}
+
+// type === "title" のプロパティを名前に依存せず取得
+function getNotionTitle(page: any): string {
+    const props = page.properties ?? {};
+    for (const prop of Object.values(props) as any[]) {
+        if (prop.type === "title") {
+            return (prop.title ?? []).map((t: any) => t.plain_text).join("").trim();
+        }
+    }
+    return "";
 }
 
 export async function POST(req: NextRequest) {
@@ -203,7 +242,7 @@ export async function POST(req: NextRequest) {
         // ③ Notion「公開」でタイトルが変わっていたら更新
         const { data: allRecords } = await supabase
             .from("cases_articles")
-            .select("id, notion_page_id, title, status")
+            .select("id, notion_page_id, title, status, image_url")
             .not("notion_page_id", "is", null);
 
         for (const record of allRecords ?? []) {
@@ -219,7 +258,7 @@ export async function POST(req: NextRequest) {
 
             const notionStatus: string =
                 notionPage.properties?.["Status"]?.status?.name ?? "";
-            const notionTitle = getNotionTitle(notionPage, "title");
+            const notionTitle = getNotionTitle(notionPage);
             const isPublishedInSupabase = record.status === "公開";
             const isPublishedInNotion = notionStatus === "公開";
 
@@ -248,16 +287,29 @@ export async function POST(req: NextRequest) {
                 continue;
             }
 
-            // ③ タイトル更新：両方「公開」でタイトルが変わっていたら更新
-            if (isPublishedInSupabase && isPublishedInNotion && notionTitle && notionTitle !== record.title) {
-                const { error: updateErr } = await supabase
-                    .from("cases_articles")
-                    .update({ title: notionTitle })
-                    .eq("id", record.id);
-                if (updateErr) {
-                    log.push(`[ERROR] Supabase更新失敗: ${record.id} - ${updateErr.message}`);
-                } else {
-                    log.push(`[TITLE] supabase ${record.id}: "${record.title}" → "${notionTitle}"`);
+            // ③ タイトル・画像URL更新：両方「公開」で値が変わっていたら更新
+            if (isPublishedInSupabase && isPublishedInNotion) {
+                const notionImageUrl =
+                    notionPage.properties?.[notionImageUrlPropertyName]?.url ?? null;
+
+                const titleChanged = notionTitle && notionTitle !== record.title;
+                const imageChanged = notionImageUrl !== null && notionImageUrl !== record.image_url;
+
+                if (titleChanged || imageChanged) {
+                    const patch: Record<string, string> = {};
+                    if (titleChanged) patch.title = notionTitle;
+                    if (imageChanged) patch.image_url = notionImageUrl;
+
+                    const { error: updateErr } = await supabase
+                        .from("cases_articles")
+                        .update(patch)
+                        .eq("id", record.id);
+                    if (updateErr) {
+                        log.push(`[ERROR] Supabase更新失敗: ${record.id} - ${updateErr.message}`);
+                    } else {
+                        if (titleChanged) log.push(`[TITLE] supabase ${record.id}: "${record.title}" → "${notionTitle}"`);
+                        if (imageChanged) log.push(`[IMAGE] supabase ${record.id}: image_url 更新`);
+                    }
                 }
             }
         }
@@ -287,17 +339,34 @@ export async function POST(req: NextRequest) {
             }
 
             // タイトル（Notionのタイトル列名に合わせる）
-            const title = getNotionTitle(page, "title"); // ←必要なら "タイトル" などに変更
+            const title = getNotionTitle(page);
 
             // 本文ブロックを取得して解析
             const blocks = await fetchBlocks(pageId);
             const sections = parseSectionsFromBlocks(blocks);
+
+            // サムネイル画像：ブロック画像 > URLプロパティ の優先順位で取得
+            let resolvedImageUrl: string | null =
+                page.properties?.[notionImageUrlPropertyName]?.url ?? null;
+
+            if (sections.thumbnail_image_url) {
+                try {
+                    resolvedImageUrl = await uploadImageUrlToSupabase(
+                        sections.thumbnail_image_url,
+                        supabaseId
+                    );
+                    log.push(`[OK] サムネイル画像をSupabase Storageにアップロード: ${supabaseId}`);
+                } catch (e: any) {
+                    log.push(`[WARN] サムネイル画像アップロード失敗（スキップ）: ${e.message}`);
+                }
+            }
 
             // Supabaseへ反映（Notionが編集元）
             const { data: updated, error: upErr } = await supabase
                 .from("cases_articles")
                 .update({
                     title: title || undefined,
+                    image_url: resolvedImageUrl,
                     category: sections.category ?? null,
                     client: sections.client ?? null,
                     challenge: sections.challenge ?? null,
